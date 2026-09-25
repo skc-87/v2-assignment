@@ -1,6 +1,6 @@
 {
-  "buildCommand": "[ -d \"frontend\" ] && cd frontend; npm install && npm run build",
-  "outputDirectory": "frontend/dist",
+  "buildCommand": "npm install && npm run build",
+  "outputDirectory": "dist",
   "routes": [
     {
       "handle": "filesystem"
