@@ -3,6 +3,7 @@ const QRCode = require("qrcode");
 const Event = require("../models/Event");
 const EventPass = require("../models/EventPass");
 const User = require("../models/User");
+const Student = require("../models/Student");
 
 const generateEventId = () => `EVT${Date.now()}${crypto.randomBytes(4).toString('hex')}`.toUpperCase();
 const generatePassId = () => `PASS${Date.now()}${crypto.randomBytes(4).toString('hex')}`.toUpperCase();
@@ -29,6 +30,10 @@ const eventController = {
       }
       if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
         return res.status(400).json({ success: false, message: "Date must be a valid date in YYYY-MM-DD format" });
+      }
+      const todayStr = new Date().toISOString().split("T")[0];
+      if (date < todayStr) {
+        return res.status(400).json({ success: false, message: "Event date cannot be in the past" });
       }
       if (typeof time !== 'string' || !/^\d{2}:\d{2}/.test(time)) {
         return res.status(400).json({ success: false, message: "Time must be in HH:MM format" });
@@ -116,7 +121,13 @@ const eventController = {
         if (!pass.studentId || !pass.eventId) {
           return res.json({ valid: false, message: "Pass data is incomplete — referenced student or event may have been deleted" });
         }
-        if (pass.isUsed) return res.json({ valid: false, message: "Pass already used" });
+        if (pass.isUsed) {
+          const usedAtStr = pass.usedAt ? new Date(pass.usedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "earlier";
+          return res.json({
+            valid: false,
+            message: `Pass already used at ${usedAtStr} by ${pass.studentId.name}`
+          });
+        }
         pass.isUsed = true;
         pass.usedAt = new Date();
         pass.scannedBy = scannedBy;
@@ -174,11 +185,38 @@ const eventController = {
 
   getAllStudents: async (req, res) => {
     try {
-      const students = await User.find({ role: 'student', status: 'approved' }).select('_id name email').sort({ name: 1 });
+      const users = await User.find({ role: 'student', status: 'approved' }).select('_id name email').sort({ name: 1 }).lean();
+      const studentProfiles = await Student.find({ user: { $in: users.map(u => u._id) } }).select('user department year').lean();
+      const profileMap = new Map(studentProfiles.map(p => [p.user.toString(), p]));
+      const students = users.map(u => ({
+        _id: u._id,
+        name: u.name,
+        email: u.email,
+        department: profileMap.get(u._id.toString())?.department || '',
+        year: profileMap.get(u._id.toString())?.year || null,
+      }));
       res.json({ success: true, students });
     } catch (error) {
       console.error("Get students error:", error.message);
       res.status(500).json({ success: false, message: "Failed to fetch students" });
+    }
+  },
+
+  deleteEvent: async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const event = await Event.findOne({ eventId, createdBy: req.user.id });
+      if (!event) {
+        return res.status(404).json({ success: false, message: "Event not found or unauthorized to delete" });
+      }
+      await Promise.all([
+        Event.deleteOne({ _id: event._id }),
+        EventPass.deleteMany({ eventId: event._id }),
+      ]);
+      res.json({ success: true, message: "Event and all associated passes deleted successfully" });
+    } catch (error) {
+      console.error("Delete event error:", error.message);
+      res.status(500).json({ success: false, message: "Failed to delete event" });
     }
   }
 };

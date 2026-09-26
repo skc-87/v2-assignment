@@ -14,5 +14,6 @@ router.post("/validate-qr", requireRole("teacher"), eventController.validateQR);
 router.get("/", requireRole("teacher"), eventController.getAllEvents);
 router.get("/:eventId/passes", requireRole("teacher"), eventController.getEventPasses);
 router.get("/students/list", requireRole("teacher"), eventController.getAllStudents);
+router.delete("/:eventId", requireRole("teacher"), eventController.deleteEvent);
 
 module.exports = router;
